@@ -10,6 +10,7 @@ def csrf_failure(request, reason=''):
     """Представление некорректного csrf-токена."""
     return render(request, 'core/403csrf.html')
 
+
 def server_error(request):
     return render(request, 'core/500.html', status=500)
 
