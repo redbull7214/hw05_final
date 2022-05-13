@@ -88,40 +88,42 @@ class PostTests(TestCase):
         self.unfollowed_client.force_login(self.user2)
 
     def test_pages_have_image(self):
-        """В шаблоны index, profile, group_list передается изображение."""
+        """В шаблоны index, profile, group_list, post_detail
+        передается изображение.
+        """
         templates = {
             reverse('posts:index'),
             reverse('posts:group_list', kwargs={'slug': 'test-slug-img'}),
             reverse('posts:profile', kwargs={'username': 'img_user'}),
+            reverse('posts:post_detail', kwargs={
+                    'post_id': f'{self.post_image.id}'})
         }
         for template in templates:
             with self.subTest(template=template):
                 url = template
                 response = self.authorized_client.get(url)
-                content = response.context.get("page_obj")
-                for cont in content:
-                    with self.subTest(cont=cont):
-                        if cont.image:
-                            self.assertNotEqual(len(cont.image), 0)
 
-    def test_post_detail_have_image(self):
-        """В шаблон post_detail передается изображение"""
-        url = reverse('posts:post_detail', kwargs={
-            'post_id': f'{self.post_image.id}'
-        })
-        response = self.authorized_client.get(url)
-        content = response.context.get("post")
-        if content.image:
-            self.assertNotEqual(len(content.image), 0)
+                with self.subTest(response=response):
 
-    def test_follow_and_unfollow(self):
-        """Авторизованный пользователь может подписываться на других
-         пользователей и удалять их из подписок.
-         """
+                    self.assertContains(response, 'img')
+
+    def test_follow_on_authors(self):
+        """Авторизованный пользователь не может подписаться на себя и может
+        подписываться на других пользователей.
+        """
         self.authorized_client.get(reverse('posts:profile_follow', kwargs={
             'username': 'auth'
         }))
         self.assertFalse(Follow.objects.all().exists())
+        self.authorized_client.get(reverse('posts:profile_follow', kwargs={
+            'username': 'auth2'
+        }))
+        self.assertTrue(Follow.objects.all().exists())
+
+    def test_unfollow(self):
+        """Авторизованный пользователь может отписаться от автора,
+        на которого ранее был подписан.
+        """
         self.authorized_client.get(reverse('posts:profile_follow', kwargs={
             'username': 'auth2'
         }))
@@ -132,20 +134,43 @@ class PostTests(TestCase):
         self.assertFalse(Follow.objects.all().exists())
 
     def test_news_for_followers(self):
-        """Новая запись пользователя появляется в ленте тех, кто
-        на него подписан и не появляется в ленте тех, кто не подписан.
+        """Новая запись пользователя появляется в ленте тех,
+        кто на него подписан.
         """
-        self.authorized_client.get(reverse('posts:profile_follow', kwargs={
-            'username': 'auth2'
-        }))
+        user_author = User.objects.create_user(username='user_author')
+        Post.objects.create(
+            author=user_author,
+            text='Тестовый пост для проверки подписки',
+            group=self.group
+        )
+        Follow.objects.create(
+            author=user_author,
+            user=self.user
+        )
         response = self.authorized_client.get(reverse('posts:follow_index'))
-        self.assertContains(
-            response, 'Это тестовый текст №2 длинною больше 15 символов'
+        content = response.context['page_obj'][0]
+        data = {
+            content.text: 'Тестовый пост для проверки подписки',
+            content.author.username: 'user_author',
+            content.group.title: 'Тестовая группа',
+        }
+        for value, expected in data.items():
+            with self.subTest(value=value):
+                self.assertEqual(value, expected)
+
+    def test_news_for_followers2(self):
+        """Новая запись пользователя не появляется в ленте тех,
+        кто на него не подписан.
+        """
+        user_author = User.objects.create_user(username='user_author')
+        Post.objects.create(
+            author=user_author,
+            text='Тестовый пост для проверки подписки',
+            group=self.group
         )
-        response = self.unfollowed_client.get(reverse('posts:follow_index'))
-        self.assertNotContains(
-            response, 'Это тестовый текст №2 длинною больше 15 символов'
-        )
+
+        response = self.authorized_client.get(reverse('posts:follow_index'))
+        self.assertNotContains(response, 'Тестовый пост для проверки подписки')
 
     def test_pages_uses_correct_template(self):
         """URL-адрес использует соответствующий шаблон."""
